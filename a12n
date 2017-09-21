@@ -1,0 +1,61 @@
+#!/bin/bash
+
+CLUSTER_NAME=${1}
+ROLE_NAME=${2:-developers}
+K8S_VERSION=${K8S_VERSION:-1.7.0}
+VAULT=$(which vault)
+KUBECTL=$(which kubectl)
+ROOT_DN="${A12N_ROOT_DN}"
+
+if [[ -n "${A12N_ORG_NAME}" ]]; then
+    ORG_NAME="${A12N_ORG_NAME}"
+else
+    ORG_NAME="${USER}"
+fi
+
+if [[ -z "${VAULT}" ]]; then
+  echo "--> Error: Vault required"
+  echo "    Please \`brew install vault\`"
+  exit 1
+fi
+
+if [[ -z "${KUBECTL}" ]]; then
+  echo "--> Error: kubectl required"
+  echo "    Please install kubectl by either:"
+  echo "      * brew install kubectl"
+  echo "      * curl -sSL -o kubectl https://storage.googleapis.com/kubernetes-release/release/v${K8S_VERSION}/bin/darwin/amd64/kubectl"
+  exit 1
+fi
+
+if [[ -z "${VAULT_AUTH_GITHUB_TOKEN}" ]]; then
+  echo -n "Enter your Github Personal Access Token: "; read VAULT_AUTH_GITHUB_TOKEN
+fi
+
+export VAULT_AUTH_GITHUB_TOKEN
+
+echo "--> Issuing client certificates"
+JSON="$(vault write -format=json k8s/${CLUSTER_NAME}/pki/issue/${ROLE_NAME} common_name="$USER")"
+
+pushd $(mktemp -d)
+  echo "--> Writing certs to tempfiles"
+  echo $JSON | jq -r '.data.certificate' > ${USER}.crt
+  echo $JSON | jq -r '.data.issuing_ca' > ca.crt
+  echo $JSON | jq -r '.data.private_key' > ${USER}.key
+
+  echo "--> [k8s] Configuring cluster"
+  kubectl config set-cluster ${CLUSTER_NAME} --server=https://api.${CLUSTER_NAME}${ROOT_DN} \
+      --certificate-authority=ca.crt --embed-certs
+
+  echo "--> [k8s] Setting credentials"
+  kubectl config set-credentials ${USER}.${CLUSTER_NAME} \
+    --client-certificate=${USER}.crt \
+    --client-key=${USER}.key \
+    --embed-certs
+
+  echo "--> [k8s] Configuring context"
+  kubectl config set-context ${ORG_NAME}.${CLUSTER_NAME} --cluster=${CLUSTER_NAME} \
+      --namespace=${ORG_NAME} --user=${USER}.${CLUSTER_NAME}
+
+  echo "--> [k8s] Setting context"
+  kubectl config use-context ${ORG_NAME}.${CLUSTER_NAME}
+popd
