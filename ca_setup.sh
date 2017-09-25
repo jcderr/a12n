@@ -9,6 +9,10 @@ create() {
   CLUSTER_NAME=${1}
   vault mount -path=k8s/${CLUSTER_NAME}/pki pki
   vault mount-tune -max-lease-ttl=2160h -default-lease-ttl=720h k8s/${CLUSTER_NAME}/pki
+
+  vault write k8s/radon/pki/config/urls \
+      issuing_certificates="${VAULT_ADDR}/v1/k8s/${CLUSTER_NAME}/pki/ca" \
+      crl_distribution_points="${VAULT_ADDR}/v1/k8s/${CLUSTER_NAME}/pki/crl"
 }
 
 load() {
