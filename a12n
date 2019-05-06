@@ -32,6 +32,7 @@ if [[ -z "${VAULT_AUTH_GITHUB_TOKEN}" ]]; then
 fi
 
 export VAULT_AUTH_GITHUB_TOKEN
+vault login -method=github
 
 echo "--> Issuing client certificates"
 JSON="$(vault write -format=json k8s/${CLUSTER_NAME}/pki/issue/${ROLE_NAME} common_name="$USER")"
